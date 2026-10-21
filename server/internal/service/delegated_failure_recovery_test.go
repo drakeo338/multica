@@ -1007,20 +1007,20 @@ func TestHandleFailedTasksFinalDelegatedFailureWakesCoordinator(t *testing.T) {
 // that orphan recovery has just failed with runtime_recovery.
 func (f *delegatedFailureFixture) insertOrphanedWorkerTask(t *testing.T, attempt, maxAttempts int32) db.AgentTaskQueue {
 	t.Helper()
-	ctx := context.Background()
-	var taskID pgtype.UUID
-	if err := f.pool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (
-			agent_id, runtime_id, issue_id, status, priority, attempt, max_attempts,
-			originator_user_id, accountable_user_id, originator_source,
-			failure_reason, error, completed_at
-		)
-		VALUES ($1, $2, $3, 'failed', 0, $4, $5, $6, $6, 'direct_human',
-			'runtime_recovery', 'daemon restarted while task was in flight', now())
-		RETURNING id`, f.worker, f.runtimeID, f.workerIssue, attempt, maxAttempts, f.userID).Scan(&taskID); err != nil {
-		t.Fatalf("seed orphaned task: %v", err)
-	}
-	task, err := db.New(f.pool).GetAgentTask(ctx, taskID)
+	taskID := dbfx.New(f.pool, f.workspaceID, f.userID).Task(t, f.worker, dbfx.Cols{
+		"runtime_id":          f.runtimeID,
+		"issue_id":            f.workerIssue,
+		"status":              "failed",
+		"attempt":             attempt,
+		"max_attempts":        maxAttempts,
+		"originator_user_id":  f.userID,
+		"accountable_user_id": f.userID,
+		"originator_source":   "direct_human",
+		"failure_reason":      "runtime_recovery",
+		"error":               "daemon restarted while task was in flight",
+		"completed_at":        dbfx.Raw("now()"),
+	})
+	task, err := db.New(f.pool).GetAgentTask(context.Background(), util.MustParseUUID(taskID))
 	if err != nil {
 		t.Fatalf("load orphaned task: %v", err)
 	}
